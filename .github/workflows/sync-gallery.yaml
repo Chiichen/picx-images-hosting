@@ -18,6 +18,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+          path: source-repo
 
       - name: Checkout target repo
         uses: actions/checkout@v3
@@ -29,7 +30,7 @@ jobs:
       - name: Generate source file hashes
         id: source-hashes
         run: |
-          cd Gallery
+          cd source-repo/Gallery
           find . -type f -exec sha256sum {} \; | sort > /tmp/source_hashes.txt
           echo "::set-output name=hashes::$(cat /tmp/source_hashes.txt | base64 -w0)"
 
@@ -58,7 +59,7 @@ jobs:
       - name: Copy changed files
         if: steps.compare-hashes.outputs.has_changes == 'true'
         run: |
-          rsync -av --delete Gallery/ target-repo/
+          rsync -av --delete source-repo/Gallery/ target-repo/
 
       - name: Commit and push changes
         if: steps.compare-hashes.outputs.has_changes == 'true'
@@ -72,4 +73,4 @@ jobs:
           else
             git commit -m "[Sync] ${{ github.event.head_commit.message }}"
           fi
-          git push
+          git push origin HEAD:master
