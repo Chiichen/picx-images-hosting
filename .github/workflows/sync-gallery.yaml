@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - 'Gallery/**'
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -18,44 +19,57 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v35
-        with:
-          since_last_remote_commit: 'true'
-          base_sha: ${{ github.event.before }}
-          sha: ${{ github.sha }}
-          files: |
-            Gallery/**
-
-      - name: Check if Gallery changed
-        id: check-changes
-        run: |
-          if [ -z "${{ steps.changed-files.outputs.all_changed_files }}" ]; then
-            echo "::set-output name=has_changes::false"
-          else
-            echo "::set-output name=has_changes::true"
-          fi
-
       - name: Checkout target repo
-        if: steps.check-changes.outputs.has_changes == 'true'
         uses: actions/checkout@v3
         with:
           repository: Chiichen/gallery
           path: target-repo
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate source file hashes
+        id: source-hashes
+        run: |
+          cd Gallery
+          find . -type f -exec sha256sum {} \; | sort > /tmp/source_hashes.txt
+          echo "::set-output name=hashes::$(cat /tmp/source_hashes.txt | base64 -w0)"
+
+      - name: Generate target file hashes
+        id: target-hashes
+        run: |
+          cd target-repo
+          find . -type f -exec sha256sum {} \; | sort > /tmp/target_hashes.txt
+          echo "::set-output name=hashes::$(cat /tmp/target_hashes.txt | base64 -w0)"
+
+      - name: Compare hashes
+        id: compare-hashes
+        run: |
+          echo "${{ steps.source-hashes.outputs.hashes }}" | base64 -d > /tmp/source_hashes.txt
+          echo "${{ steps.target-hashes.outputs.hashes }}" | base64 -d > /tmp/target_hashes.txt
+
+          diff_output=$(diff /tmp/source_hashes.txt /tmp/target_hashes.txt || true)
+
+          if [ -z "$diff_output" ]; then
+            echo "::set-output name=has_changes::false"
+          else
+            echo "::set-output name=has_changes::true"
+            echo "::set-output name=diff_output::$diff_output"
+          fi
+
       - name: Copy changed files
-        if: steps.check-changes.outputs.has_changes == 'true'
+        if: steps.compare-hashes.outputs.has_changes == 'true'
         run: |
           rsync -av --delete Gallery/ target-repo/
 
       - name: Commit and push changes
-        if: steps.check-changes.outputs.has_changes == 'true'
+        if: steps.compare-hashes.outputs.has_changes == 'true'
         run: |
           cd target-repo
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "[Sync] ${{ github.event.head_commit.message }}"
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            git commit -m "[Sync] Manual sync"
+          else
+            git commit -m "[Sync] ${{ github.event.head_commit.message }}"
+          fi
           git push
