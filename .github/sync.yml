@@ -1,0 +1,3 @@
+Chiichen/gallery:
+  - source: ./Gallery/
+    dest: ./
