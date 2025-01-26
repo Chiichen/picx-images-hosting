@@ -1,0 +1,61 @@
+name: Sync Gallery
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'Gallery/**'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v35
+        with:
+          since_last_remote_commit: 'true'
+          base_sha: ${{ github.event.before }}
+          sha: ${{ github.sha }}
+          files: |
+            Gallery/**
+
+      - name: Check if Gallery changed
+        id: check-changes
+        run: |
+          if [ -z "${{ steps.changed-files.outputs.all_changed_files }}" ]; then
+            echo "::set-output name=has_changes::false"
+          else
+            echo "::set-output name=has_changes::true"
+          fi
+
+      - name: Checkout target repo
+        if: steps.check-changes.outputs.has_changes == 'true'
+        uses: actions/checkout@v3
+        with:
+          repository: Chiichen/gallery
+          path: target-repo
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy changed files
+        if: steps.check-changes.outputs.has_changes == 'true'
+        run: |
+          rsync -av --delete Gallery/ target-repo/
+
+      - name: Commit and push changes
+        if: steps.check-changes.outputs.has_changes == 'true'
+        run: |
+          cd target-repo
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "[Sync] ${{ github.event.head_commit.message }}"
+          git push
