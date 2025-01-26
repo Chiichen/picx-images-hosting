@@ -1,3 +1,4 @@
 Chiichen/gallery:
   - source: ./Gallery/
     dest: ./
+    deleteOrphaned: true
